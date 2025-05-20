@@ -1,0 +1,27 @@
+name: Crawl Gold Price
+
+on:
+  schedule:
+    - cron: '0 * * * *' # Mỗi 1 tiếng
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+      - name: Run crawler
+        run: python get_webgia_gold.py
+      - name: Commit and push if changed
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add gold_price.txt
+          git commit -m "Update gold price" || echo "No changes to commit"
+          git push
