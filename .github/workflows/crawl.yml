@@ -17,7 +17,7 @@ jobs:
       - name: Install dependencies
         run: pip install requests beautifulsoup4
       - name: Run crawler
-        run: python get_webgia_gold.py
+        run: python giavang.py
       - name: Commit and push if changed
         run: |
           git config --global user.name "github-actions"
