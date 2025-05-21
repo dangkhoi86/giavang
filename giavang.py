@@ -23,19 +23,16 @@ def get_webgia_gold_prices():
         soup = BeautifulSoup(response.text, "html.parser")
         gold_map = {}
         # Lấy thời gian cập nhật
-        # Lấy thời gian cập nhật
         update_time = ""
         h1 = soup.find("h1", class_="box-headline highlight")
-        logging.info(f"Nội dung thẻ h1: {h1}")
         if h1:
             small = h1.find("small")
-            logging.info(f"Nội dung thẻ small: {small}")
             if small:
-                update_time = small.get_text(strip=True)
-        if not update_time:
-            # Thử lấy tất cả thẻ small
-            for small in soup.find_all("small"):
-                logging.info(f"Thẻ small: {small.get_text(strip=True)}")
+                update_time_full = small.get_text(strip=True)
+                if "Cập nhật lúc" in update_time_full:
+                    update_time = update_time_full.replace("Cập nhật lúc", "").strip()
+                else:
+                    update_time = update_time_full.strip()
         if update_time:
             logging.info(f"Thời gian cập nhật lấy được: {update_time}")
         else:
@@ -106,12 +103,17 @@ def update_sheet_mihong(spreadsheet_name, credentials_json):
             print(f"Có lỗi xảy ra ở dòng {row}: {e}")
             break
 
+    for sheet in client.openall():
+        print(sheet.title)
+
 if __name__ == "__main__":
-    # Lấy credentials từ biến môi trường (GitHub Actions Secret)
     credentials_str = os.environ.get("GOOGLE_SHEETS_CREDENTIALS")
-    if not credentials_str:
-        raise Exception("Chưa có biến môi trường GOOGLE_SHEETS_CREDENTIALS")
-    credentials_json = json.loads(credentials_str)
+    if credentials_str:
+        credentials_json = json.loads(credentials_str)
+    else:
+        # Nếu không có biến môi trường thì đọc từ file credentials.json
+        with open('credentials.json', 'r', encoding='utf-8') as f:
+            credentials_json = json.load(f)
 
     SPREADSHEET_NAME = "TIỀN HỤI"  # Đổi tên file Google Sheets ở đây
     update_sheet_mihong(SPREADSHEET_NAME, credentials_json)
