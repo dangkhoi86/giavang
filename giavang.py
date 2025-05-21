@@ -22,6 +22,14 @@ def get_webgia_gold_prices():
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
         gold_map = {}
+        # Lấy thời gian cập nhật
+        update_time = ""
+        h1 = soup.find("h1", class_="box-headline highlight")
+        if h1:
+            small = h1.find("small")
+            if small:
+                update_time = small.get_text(strip=True)
+        # Lấy giá vàng như cũ
         for tr in soup.find_all("tr"):
             th = tr.find("th")
             tds = tr.find_all("td", class_="text-right")
@@ -33,10 +41,10 @@ def get_webgia_gold_prices():
                     gold_map[gold_type] = buy_price
                     logging.info(f"Loại vàng: {gold_type} | Giá mua vào: {buy_price}")
         logging.info(f"goldMap: {gold_map}")
-        return gold_map
+        return gold_map, update_time
     except Exception as e:
         logging.error(f"Lỗi khi lấy giá vàng: {e}")
-        return {}
+        return {}, ""
 
 def update_sheet_mihong(spreadsheet_name, credentials_json):
     scope = [
@@ -47,10 +55,14 @@ def update_sheet_mihong(spreadsheet_name, credentials_json):
     client = gspread.authorize(creds)
     sheet = client.open(spreadsheet_name).worksheet("Trang tính1")
 
-    gold_map = get_webgia_gold_prices()
+    gold_map, update_time = get_webgia_gold_prices()
     if not gold_map:
         print("Không lấy được dữ liệu giá vàng.")
         return
+
+    # Ghi thời gian cập nhật vào ô H35
+    if update_time:
+        sheet.update_acell('H35', update_time)
 
     row = 36
     while True:
