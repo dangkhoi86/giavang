@@ -1,27 +1,25 @@
-name: Crawl Gold Price
+name: Update Gold Price
 
 on:
   schedule:
-    - cron: '0 * * * *' # Mỗi 1 tiếng
-  workflow_dispatch:
+    - cron: '*/30 * * * *'   # Chạy mỗi 30 phút
+  workflow_dispatch:         # Cho phép chạy thủ công nếu muốn
 
 jobs:
-  build:
+  update-gold:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: '3.10'
+
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
-      - name: Run crawler
+        run: pip install requests beautifulsoup4 gspread oauth2client
+
+      - name: Run update gold price script
+        env:
+          GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
         run: python giavang.py
-      - name: Commit and push if changed
-        run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "github-actions@github.com"
-          git add gold_price.txt
-          git commit -m "Update gold price" || echo "No changes to commit"
-          git push
