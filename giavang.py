@@ -23,12 +23,19 @@ def get_webgia_gold_prices():
         soup = BeautifulSoup(response.text, "html.parser")
         gold_map = {}
         # Lấy thời gian cập nhật
+        # Lấy thời gian cập nhật
         update_time = ""
         h1 = soup.find("h1", class_="box-headline highlight")
+        logging.info(f"Nội dung thẻ h1: {h1}")
         if h1:
             small = h1.find("small")
+            logging.info(f"Nội dung thẻ small: {small}")
             if small:
                 update_time = small.get_text(strip=True)
+        if not update_time:
+            # Thử lấy tất cả thẻ small
+            for small in soup.find_all("small"):
+                logging.info(f"Thẻ small: {small.get_text(strip=True)}")
         if update_time:
             logging.info(f"Thời gian cập nhật lấy được: {update_time}")
         else:
