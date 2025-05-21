@@ -20,6 +20,11 @@ def get_webgia_gold_prices():
     try:
         response = requests.get(url, headers=headers)
         response.raise_for_status()
+
+        # GHI LẠI HTML ĐỂ DEBUG
+        with open("debug.html", "w", encoding="utf-8") as f:
+            f.write(response.text)
+            
         soup = BeautifulSoup(response.text, "html.parser")
         gold_map = {}
         # Lấy thời gian cập nhật
