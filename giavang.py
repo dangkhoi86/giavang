@@ -1,32 +1,92 @@
+import os
+import json
 import requests
 from bs4 import BeautifulSoup
+import logging
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
-url = "https://webgia.com/gia-vang/mi-hong/"
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-}
+# Cấu hình logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
-response = requests.get(url, headers=headers)
-response.raise_for_status()  # Báo lỗi nếu không truy cập được
+def get_webgia_gold_prices():
+    url = "https://giavang.org/trong-nuoc/mi-hong/"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    }
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        gold_map = {}
+        for tr in soup.find_all("tr"):
+            th = tr.find("th")
+            tds = tr.find_all("td", class_="text-right")
+            if th and tds:
+                gold_type = th.get_text(strip=True)
+                gold_type = gold_type.replace("Vàng", "").replace("%", "").replace(",", "").replace("miếng SJC", "SJC").strip()
+                buy_price = tds[0].get_text(strip=True).replace(".", "")
+                if buy_price.isdigit():
+                    gold_map[gold_type] = buy_price
+                    logging.info(f"Loại vàng: {gold_type} | Giá mua vào: {buy_price}")
+        logging.info(f"goldMap: {gold_map}")
+        return gold_map
+    except Exception as e:
+        logging.error(f"Lỗi khi lấy giá vàng: {e}")
+        return {}
 
-soup = BeautifulSoup(response.text, "html.parser")
+def update_sheet_mihong(spreadsheet_name, credentials_json):
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials_json, scope)
+    client = gspread.authorize(creds)
+    sheet = client.open(spreadsheet_name).worksheet("Trang tính1")
 
-# Tìm bảng giá vàng
-table = soup.find("table", class_="table table-radius table-hover")
-rows = table.find_all("tr")
+    gold_map = get_webgia_gold_prices()
+    if not gold_map:
+        print("Không lấy được dữ liệu giá vàng.")
+        return
 
-lines = []
-for row in rows[1:]:  # Bỏ qua header
-    cols = row.find_all(["th", "td"])
-    if len(cols) >= 3:
-        gold_type = cols[0].get_text(strip=True)
-        buy_price = cols[1].get_text(strip=True)
-        sell_price = cols[2].get_text(strip=True)
-        line = f"{gold_type}: {buy_price} - {sell_price}"
-        print(line)
-        lines.append(line)
+    row = 36
+    while True:
+        try:
+            type_cell = sheet.acell(f'G{row}').value
+            if not type_cell:
+                break
+            type_norm = type_cell.strip()
+            if type_norm.lower() != 'sjc':
+                type_norm = ''.join(filter(str.isdigit, type_norm))
+            if not type_norm:
+                row += 1
+                continue
+            if type_norm in gold_map:
+                price_string = gold_map[type_norm]
+                try:
+                    price_number = int(price_string)
+                except:
+                    row += 1
+                    continue
+                if price_number:
+                    multiplied_price = price_number * 100
+                    sheet.update_acell(f'H{row}', multiplied_price)
+            row += 1
+            if row > 500:
+                break
+        except Exception as e:
+            print(f"Có lỗi xảy ra ở dòng {row}: {e}")
+            break
 
-# Ghi ra file txt
-with open("gold_price.txt", "w", encoding="utf-8") as f:
-    for line in lines:
-        f.write(line + "\n")
+if __name__ == "__main__":
+    # Lấy credentials từ biến môi trường (GitHub Actions Secret)
+    credentials_str = os.environ.get("GOOGLE_SHEETS_CREDENTIALS")
+    if not credentials_str:
+        raise Exception("Chưa có biến môi trường GOOGLE_SHEETS_CREDENTIALS")
+    credentials_json = json.loads(credentials_str)
+
+    SPREADSHEET_NAME = "TIỀN HỤI"  # Đổi tên sheet của bạn ở đây
+    update_sheet_mihong(SPREADSHEET_NAME, credentials_json)
