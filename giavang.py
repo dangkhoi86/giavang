@@ -29,7 +29,11 @@ def get_webgia_gold_prices():
             small = h1.find("small")
             if small:
                 update_time = small.get_text(strip=True)
-        # Lấy giá vàng như cũ
+        if update_time:
+            logging.info(f"Thời gian cập nhật lấy được: {update_time}")
+        else:
+            logging.warning("Không lấy được thời gian cập nhật từ trang web!")
+        # Lấy giá vàng
         for tr in soup.find_all("tr"):
             th = tr.find("th")
             tds = tr.find_all("td", class_="text-right")
@@ -60,9 +64,11 @@ def update_sheet_mihong(spreadsheet_name, credentials_json):
         print("Không lấy được dữ liệu giá vàng.")
         return
 
-    # Ghi thời gian cập nhật vào ô H35
+    # Ghi thời gian cập nhật vào ô H35 (nếu có)
     if update_time:
         sheet.update_acell('H35', update_time)
+    else:
+        sheet.update_acell('H35', "Không lấy được thời gian cập nhật")
 
     row = 36
     while True:
@@ -100,5 +106,5 @@ if __name__ == "__main__":
         raise Exception("Chưa có biến môi trường GOOGLE_SHEETS_CREDENTIALS")
     credentials_json = json.loads(credentials_str)
 
-    SPREADSHEET_NAME = "TIỀN HỤI"  # Đổi tên sheet của bạn ở đây
+    SPREADSHEET_NAME = "TIỀN HỤI"  # Đổi tên file Google Sheets ở đây
     update_sheet_mihong(SPREADSHEET_NAME, credentials_json)
