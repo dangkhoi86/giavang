@@ -5,12 +5,43 @@ from bs4 import BeautifulSoup
 import logging
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import re # Import re module
 
 # Cấu hình logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+def normalize_gold_type(gold_type_str):
+    # Chuyển về chữ thường để so sánh không phân biệt hoa thường
+    gold_type_str_lower = gold_type_str.lower()
+
+    if "sjc" in gold_type_str_lower:
+        return "SJC"
+    elif "99,9%" in gold_type_str_lower or "99.9%" in gold_type_str_lower:
+        return "999"
+    elif "9t85" in gold_type_str_lower:
+        return "985"
+    elif "9t8" in gold_type_str_lower:
+        return "980"
+    elif "95" in gold_type_str_lower and "95,0%" in gold_type_str_lower:
+        return "950"
+    elif "v75" in gold_type_str_lower:
+        return "750"
+    elif "v68" in gold_type_str_lower:
+        return "680"
+    elif "6t1" in gold_type_str_lower:
+        return "610"
+    elif "14k" in gold_type_str_lower:
+        return "14K"
+    elif "10k" in gold_type_str_lower:
+        return "10K"
+    else:
+        # Trường hợp dự phòng: thử trích xuất số và chữ cái, sau đó làm sạch
+        cleaned = re.sub(r'[^\w]', '', gold_type_str) # Xóa các ký tự không phải chữ/số/gạch dưới
+        cleaned = cleaned.replace("vang", "") # Xóa "vang" nếu nó còn sót lại
+        return cleaned.upper() # Chuyển về chữ hoa cho đồng nhất
 
 def get_webgia_gold_prices():
     url = "https://giavang.org/trong-nuoc/mi-hong/"
@@ -20,13 +51,8 @@ def get_webgia_gold_prices():
     try:
         response = requests.get(url, headers=headers)
         response.raise_for_status()
-
-        # GHI LẠI HTML ĐỂ DEBUG
-        with open("debug.html", "w", encoding="utf-8") as f:
-            f.write(response.text)
-            
         soup = BeautifulSoup(response.text, "html.parser")
-        gold_map = {}
+        gold_data = []
         # Lấy thời gian cập nhật
         update_time = ""
         h1 = soup.find("h1", class_="box-headline highlight")
@@ -43,18 +69,46 @@ def get_webgia_gold_prices():
         else:
             logging.warning("Không lấy được thời gian cập nhật từ trang web!")
         # Lấy giá vàng
-        for tr in soup.find_all("tr"):
-            th = tr.find("th")
-            tds = tr.find_all("td", class_="text-right")
-            if th and tds:
-                gold_type = th.get_text(strip=True)
-                gold_type = gold_type.replace("Vàng", "").replace("%", "").replace(",", "").replace("miếng SJC", "SJC").strip()
-                buy_price = tds[0].get_text(strip=True).replace(".", "")
-                if buy_price.isdigit():
-                    gold_map[gold_type] = buy_price
-                    logging.info(f"Loại vàng: {gold_type} | Giá mua vào: {buy_price}")
-        logging.info(f"goldMap: {gold_map}")
-        return gold_map, update_time
+        # Tìm thẻ <thead> để lấy tiêu đề cột
+        header_row = soup.find("thead").find("tr")
+        headers = [th.get_text(strip=True) for th in header_row.find_all("th")]
+        buy_index = -1
+        sell_index = -1
+        type_index = -1
+
+        if "Mua vào" in headers:
+            buy_index = headers.index("Mua vào")
+        if "Bán ra" in headers:
+            sell_index = headers.index("Bán ra")
+        if "Loại vàng" in headers:
+            type_index = headers.index("Loại vàng")
+
+        if buy_index == -1 or sell_index == -1 or type_index == -1:
+            logging.warning("Không tìm thấy đủ các cột cần thiết (Loại vàng, Mua vào, Bán ra).")
+            return {}, ""
+
+        for tr in soup.find("tbody").find_all("tr"): # Chỉ tìm trong tbody để tránh hàng tiêu đề
+            tds = tr.find_all(["th", "td"]) # Có thể có cả th và td trong tbody
+            if len(tds) > max(buy_index, sell_index, type_index):
+                gold_type = tds[type_index].get_text(strip=True)
+                buy_price = tds[buy_index].get_text(strip=True).replace(".", "").replace(",", "")
+                sell_price = tds[sell_index].get_text(strip=True).replace(".", "").replace(",", "")
+
+                # Chuẩn hóa loại vàng bằng hàm mới
+                gold_type_normalized = normalize_gold_type(gold_type)
+
+                gold_entry = {
+                    "type": gold_type_normalized,
+                    "buy_price": buy_price if buy_price.isdigit() else None,
+                    "sell_price": sell_price if sell_price.isdigit() else None
+                }
+                gold_data.append(gold_entry)
+                logging.info(f"Loại vàng: {gold_type_normalized} | Giá mua vào: {buy_price} | Giá bán ra: {sell_price}")
+
+        # Chuyển gold_data thành gold_map nếu cần cho các hàm tiếp theo
+        gold_map_for_return = {item["type"]: item for item in gold_data if item["buy_price"] is not None}
+        logging.info(f"goldMap: {gold_map_for_return}")
+        return gold_map_for_return, update_time
     except Exception as e:
         logging.error(f"Lỗi khi lấy giá vàng: {e}")
         return {}, ""
@@ -83,29 +137,47 @@ def update_sheet_mihong(spreadsheet_name, credentials_json):
     while True:
         try:
             type_cell = sheet.acell(f'G{row}').value
+            logging.info(f"Sheet cell G{row} raw value: {type_cell}")
             if not type_cell:
                 break
             type_norm = type_cell.strip()
-            if type_norm.lower() != 'sjc':
-                type_norm = ''.join(filter(str.isdigit, type_norm))
-            if not type_norm:
+            logging.info(f"Sheet cell G{row} stripped value: {type_norm}")
+            # Chuẩn hóa type_norm bằng hàm mới
+            type_norm_key = normalize_gold_type(type_norm)
+
+            logging.info(f"Sheet cell G{row} normalized key: {type_norm_key}")
+
+            if not type_norm_key:
                 row += 1
                 continue
-            if type_norm in gold_map:
-                price_string = gold_map[type_norm]
-                try:
-                    price_number = int(price_string)
-                except:
-                    row += 1
-                    continue
-                if price_number:
-                    multiplied_price = price_number * 100
-                    sheet.update_acell(f'H{row}', multiplied_price)
+
+            if type_norm_key in gold_map:
+                logging.info(f"Matching gold type '{type_norm_key}' found in gold_map.")
+                buy_price_string = gold_map[type_norm_key].get("buy_price")
+                sell_price_string = gold_map[type_norm_key].get("sell_price")
+                logging.info(f"Prices for {type_norm_key}: Buy={buy_price_string}, Sell={sell_price_string}")
+
+                buy_price_number = None
+                sell_price_number = None
+
+                if buy_price_string and buy_price_string.isdigit():
+                    buy_price_number = int(buy_price_string)
+                if sell_price_string and sell_price_string.isdigit():
+                    sell_price_number = int(sell_price_string)
+
+                # Cập nhật giá mua vào (cột H)
+                if buy_price_number is not None:
+                    multiplied_buy_price = buy_price_number * 100
+                    sheet.update_acell(f'H{row}', multiplied_buy_price)
+                    logging.info(f"Updated H{row} with buy price: {multiplied_buy_price}")
+            else:
+                logging.warning(f"No match found for gold type '{type_norm_key}' in gold_map.")
+
             row += 1
             if row > 500:
                 break
         except Exception as e:
-            print(f"Có lỗi xảy ra ở dòng {row}: {e}")
+            logging.error(f"Có lỗi xảy ra ở dòng {row}: {e}")
             break
 
     for sheet in client.openall():
