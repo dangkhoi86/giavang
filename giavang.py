@@ -133,6 +133,39 @@ def update_sheet_mihong(spreadsheet_name, credentials_json):
     else:
         sheet.update_acell('H35', "Không lấy được thời gian cập nhật")
 
+    # Thêm tiêu đề bảng ở M36, N36, O36
+    sheet.update('M36:O36', [["Loại vàng", "Mua vào", "Bán ra"]])
+
+    # Cập nhật dữ liệu vào cột M, N, O bắt đầu từ M37
+    current_row_mno = 37
+    for gold_type, data in gold_map.items():
+        type_to_write = gold_type
+        buy_price_to_write = data.get("buy_price")
+        sell_price_to_write = data.get("sell_price")
+
+        # Chuyển đổi sang số và nhân với 100 nếu là số
+        if buy_price_to_write and buy_price_to_write.isdigit():
+            buy_price_to_write = int(buy_price_to_write) * 100
+        else:
+            buy_price_to_write = None # Hoặc giữ nguyên giá trị gốc nếu không phải số
+        
+        if sell_price_to_write and sell_price_to_write.isdigit():
+            sell_price_to_write = int(sell_price_to_write) * 100
+        else:
+            sell_price_to_write = None # Hoặc giữ nguyên giá trị gốc nếu không phải số
+        
+        # Chuẩn bị dữ liệu cho một hàng
+        row_data = [
+            type_to_write,
+            buy_price_to_write,
+            sell_price_to_write
+        ]
+        
+        # Cập nhật một hàng vào Google Sheet
+        sheet.update(f'M{current_row_mno}:O{current_row_mno}', [row_data])
+        logging.info(f"Updated M{current_row_mno}:O{current_row_mno} with: {row_data}")
+        current_row_mno += 1
+
     row = 36
     while True:
         try:
