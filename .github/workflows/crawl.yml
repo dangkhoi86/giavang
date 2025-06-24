@@ -2,8 +2,8 @@ name: Update Gold Price
 
 on:
   schedule:
-    - cron: '0 */1 * * *'   # Chạy mỗi 30 phút
-  workflow_dispatch:         # Cho phép chạy thủ công nếu muốn
+    - cron: '0 1-15 * * 1-7'
+  workflow_dispatch:
 
 jobs:
   update-gold:
