@@ -6,12 +6,35 @@ import logging
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import re # Import re module
+import time # Import time module for delays
 
 # Cấu hình logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+def retry_with_backoff(func, max_retries=3, base_delay=1):
+    """Retry function with exponential backoff"""
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except gspread.exceptions.APIError as e:
+            if e.response.status_code == 503 and attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                logging.warning(f"API Error 503, retrying in {delay} seconds... (attempt {attempt + 1}/{max_retries})")
+                time.sleep(delay)
+                continue
+            else:
+                raise e
+        except Exception as e:
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                logging.warning(f"Error occurred, retrying in {delay} seconds... (attempt {attempt + 1}/{max_retries})")
+                time.sleep(delay)
+                continue
+            else:
+                raise e
 
 def normalize_gold_type(gold_type_str):
     # Chuyển về chữ thường để so sánh không phân biệt hoa thường
@@ -129,15 +152,16 @@ def update_sheet_mihong(spreadsheet_name, credentials_json):
 
     # Ghi thời gian cập nhật vào ô H35 (nếu có)
     if update_time:
-        sheet.update_acell('H35', update_time)
+        retry_with_backoff(lambda: sheet.update_acell('H33', update_time))
     else:
-        sheet.update_acell('H35', "Không lấy được thời gian cập nhật")
+        retry_with_backoff(lambda: sheet.update_acell('H33', "Không lấy được thời gian cập nhật"))
 
     # Thêm tiêu đề bảng ở M36, N36, O36
-    sheet.update('M36:O36', [["Loại vàng", "Mua vào", "Bán ra"]])
+    retry_with_backoff(lambda: sheet.update('M16:O16', [["Loại vàng", "Mua vào", "Bán ra"]]))
 
-    # Cập nhật dữ liệu vào cột M, N, O bắt đầu từ M37
-    current_row_mno = 37
+    # Chuẩn bị dữ liệu batch cho cột M, N, O
+    batch_data_mno = []
+    current_row_mno = 17
     for gold_type, data in gold_map.items():
         type_to_write = gold_type
         buy_price_to_write = data.get("buy_price")
@@ -160,16 +184,26 @@ def update_sheet_mihong(spreadsheet_name, credentials_json):
             buy_price_to_write,
             sell_price_to_write
         ]
-        
-        # Cập nhật một hàng vào Google Sheet
-        sheet.update(f'M{current_row_mno}:O{current_row_mno}', [row_data])
-        logging.info(f"Updated M{current_row_mno}:O{current_row_mno} with: {row_data}")
+        batch_data_mno.append(row_data)
+        logging.info(f"Prepared data for M{current_row_mno}:O{current_row_mno}: {row_data}")
         current_row_mno += 1
 
-    row = 36
+    # Batch update cho cột M, N, O
+    if batch_data_mno:
+        start_row = 17
+        end_row = start_row + len(batch_data_mno) - 1
+        range_name = f'M{start_row}:O{end_row}'
+        retry_with_backoff(lambda: sheet.update(range_name, batch_data_mno))
+        logging.info(f"Batch updated {range_name} with {len(batch_data_mno)} rows")
+        time.sleep(1)  # Delay after batch update
+
+    # Chuẩn bị dữ liệu batch cho cột H
+    batch_data_h = []
+    row_numbers = []
+    row = 34
     while True:
         try:
-            type_cell = sheet.acell(f'G{row}').value
+            type_cell = retry_with_backoff(lambda: sheet.acell(f'G{row}').value)
             logging.info(f"Sheet cell G{row} raw value: {type_cell}")
             if not type_cell:
                 break
@@ -198,11 +232,12 @@ def update_sheet_mihong(spreadsheet_name, credentials_json):
                 if sell_price_string and sell_price_string.isdigit():
                     sell_price_number = int(sell_price_string)
 
-                # Cập nhật giá mua vào (cột H)
+                # Chuẩn bị dữ liệu cho cột H
                 if buy_price_number is not None:
                     multiplied_buy_price = buy_price_number * 100
-                    sheet.update_acell(f'H{row}', multiplied_buy_price)
-                    logging.info(f"Updated H{row} with buy price: {multiplied_buy_price}")
+                    batch_data_h.append([multiplied_buy_price])
+                    row_numbers.append(row)
+                    logging.info(f"Prepared H{row} with buy price: {multiplied_buy_price}")
             else:
                 logging.warning(f"No match found for gold type '{type_norm_key}' in gold_map.")
 
@@ -213,8 +248,23 @@ def update_sheet_mihong(spreadsheet_name, credentials_json):
             logging.error(f"Có lỗi xảy ra ở dòng {row}: {e}")
             break
 
-    for sheet in client.openall():
-        print(sheet.title)
+    # Batch update cho cột H
+    if batch_data_h:
+        for i, (row_num, price_data) in enumerate(zip(row_numbers, batch_data_h)):
+            try:
+                retry_with_backoff(lambda: sheet.update_acell(f'H{row_num}', price_data[0]))
+                logging.info(f"Updated H{row_num} with buy price: {price_data[0]}")
+                if i < len(batch_data_h) - 1:  # Không delay sau lần update cuối
+                    time.sleep(0.5)  # Delay giữa các update để tránh rate limiting
+            except Exception as e:
+                logging.error(f"Failed to update H{row_num}: {e}")
+
+    # In danh sách sheets
+    try:
+        for sheet in client.openall():
+            print(sheet.title)
+    except Exception as e:
+        logging.error(f"Error listing sheets: {e}")
 
 if __name__ == "__main__":
     credentials_str = os.environ.get("GOOGLE_SHEETS_CREDENTIALS")
