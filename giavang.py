@@ -197,68 +197,6 @@ def update_sheet_mihong(spreadsheet_name, credentials_json):
         logging.info(f"Batch updated {range_name} with {len(batch_data_mno)} rows")
         time.sleep(1)  # Delay after batch update
 
-    # Chuẩn bị dữ liệu batch cho cột H
-    batch_data_h = []
-    row_numbers = []
-    row = 34
-    while True:
-        try:
-            type_cell = retry_with_backoff(lambda: sheet.acell(f'G{row}').value)
-            logging.info(f"Sheet cell G{row} raw value: {type_cell}")
-            if not type_cell:
-                break
-            type_norm = type_cell.strip()
-            logging.info(f"Sheet cell G{row} stripped value: {type_norm}")
-            # Chuẩn hóa type_norm bằng hàm mới
-            type_norm_key = normalize_gold_type(type_norm)
-
-            logging.info(f"Sheet cell G{row} normalized key: {type_norm_key}")
-
-            if not type_norm_key:
-                row += 1
-                continue
-
-            if type_norm_key in gold_map:
-                logging.info(f"Matching gold type '{type_norm_key}' found in gold_map.")
-                buy_price_string = gold_map[type_norm_key].get("buy_price")
-                sell_price_string = gold_map[type_norm_key].get("sell_price")
-                logging.info(f"Prices for {type_norm_key}: Buy={buy_price_string}, Sell={sell_price_string}")
-
-                buy_price_number = None
-                sell_price_number = None
-
-                if buy_price_string and buy_price_string.isdigit():
-                    buy_price_number = int(buy_price_string)
-                if sell_price_string and sell_price_string.isdigit():
-                    sell_price_number = int(sell_price_string)
-
-                # Chuẩn bị dữ liệu cho cột H
-                if buy_price_number is not None:
-                    multiplied_buy_price = buy_price_number * 100
-                    batch_data_h.append([multiplied_buy_price])
-                    row_numbers.append(row)
-                    logging.info(f"Prepared H{row} with buy price: {multiplied_buy_price}")
-            else:
-                logging.warning(f"No match found for gold type '{type_norm_key}' in gold_map.")
-
-            row += 1
-            if row > 500:
-                break
-        except Exception as e:
-            logging.error(f"Có lỗi xảy ra ở dòng {row}: {e}")
-            break
-
-    # Batch update cho cột H
-    if batch_data_h:
-        for i, (row_num, price_data) in enumerate(zip(row_numbers, batch_data_h)):
-            try:
-                retry_with_backoff(lambda: sheet.update_acell(f'H{row_num}', price_data[0]))
-                logging.info(f"Updated H{row_num} with buy price: {price_data[0]}")
-                if i < len(batch_data_h) - 1:  # Không delay sau lần update cuối
-                    time.sleep(0.5)  # Delay giữa các update để tránh rate limiting
-            except Exception as e:
-                logging.error(f"Failed to update H{row_num}: {e}")
-
     # In danh sách sheets
     try:
         for sheet in client.openall():
