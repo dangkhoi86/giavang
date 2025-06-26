@@ -157,11 +157,11 @@ def update_sheet_mihong(spreadsheet_name, credentials_json):
         retry_with_backoff(lambda: sheet.update_acell('H33', "Không lấy được thời gian cập nhật"))
 
     # Thêm tiêu đề bảng ở M36, N36, O36
-    retry_with_backoff(lambda: sheet.update('M16:O16', [["Loại vàng", "Mua vào", "Bán ra"]]))
+    retry_with_backoff(lambda: sheet.update('M32:O32', [["Loại vàng", "Mua vào", "Bán ra"]]))
 
     # Chuẩn bị dữ liệu batch cho cột M, N, O
     batch_data_mno = []
-    current_row_mno = 17
+    current_row_mno = 33
     for gold_type, data in gold_map.items():
         type_to_write = gold_type
         buy_price_to_write = data.get("buy_price")
@@ -190,7 +190,7 @@ def update_sheet_mihong(spreadsheet_name, credentials_json):
 
     # Batch update cho cột M, N, O
     if batch_data_mno:
-        start_row = 17
+        start_row = 33
         end_row = start_row + len(batch_data_mno) - 1
         range_name = f'M{start_row}:O{end_row}'
         retry_with_backoff(lambda: sheet.update(range_name, batch_data_mno))
