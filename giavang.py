@@ -213,5 +213,5 @@ if __name__ == "__main__":
         with open('credentials.json', 'r', encoding='utf-8') as f:
             credentials_json = json.load(f)
 
-    SPREADSHEET_NAME = "TIỀN HỤI"  # Đổi tên file Google Sheets ở đây
+    SPREADSHEET_NAME = "Tiền Hụi - vàng"  # Đổi tên file Google Sheets ở đây
     update_sheet_mihong(SPREADSHEET_NAME, credentials_json)
